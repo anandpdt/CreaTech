@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Grid AI SCADA Panel</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Firebase Compat Version (Stable for Localhost) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body {
+      background: #0b0f1a;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+    }
+
+    h1 {
+      color: cyan;
+      margin-top: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      padding: 20px;
+      max-width: 900px;
+      margin: auto;
+    }
+
+    .card {
+      background: #141c2f;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 12px cyan;
+      font-size: 18px;
+    }
+
+    canvas {
+      margin-top: 20px;
+      background: #111;
+      border-radius: 10px;
+      box-shadow: 0 0 15px cyan;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>⚡ SMART GRID AI SCADA PANEL</h1>
+
+<div class="grid">
+  <div class="card">Loss: <span id="loss">--</span></div>
+  <div class="card">Temperature: <span id="temp">--</span></div>
+  <div class="card">Voltage: <span id="voltage">--</span></div>
+  <div class="card">Theft: <span id="theft">--</span></div>
+  <div class="card">Status: <span id="status">--</span></div>
+  <div class="card">AI Risk Score: <span id="risk">--</span></div>
+  <div class="card">Predicted Next Loss: <span id="prediction">--</span></div>
+</div>
+
+<canvas id="mainChart" width="800" height="300"></canvas>
+
+<script>
+console.log("Smart Grid AI Dashboard Running...");
+
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyCrrTPwHjeovbs_Cn_XaBPmkO5fVtMz53E",
+  authDomain: "createch-66f04.firebaseapp.com",
+  databaseURL: "https://createch-66f04-default-rtdb.firebaseio.com",
+  projectId: "createch-66f04",
+  storageBucket: "createch-66f04.firebasestorage.app",
+  messagingSenderId: "830170098796",
+  appId: "1:830170098796:web:a937c5a9ff3bee53833c49"
+};
+
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+const gridRef = database.ref("gridNode");
+
+// === Data Arrays ===
+let lossArr = [];
+let tempArr = [];
+let voltArr = [];
+const MAX_POINTS = 30;
+
+// === Chart Setup ===
+const ctx = document.getElementById("mainChart").getContext("2d");
+
+const chart = new Chart(ctx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Loss %",
+        data: [],
+        borderColor: "cyan",
+        borderWidth: 2
+      },
+      {
+        label: "Temperature (°C)",
+        data: [],
+        borderColor: "orange",
+        borderWidth: 2
+      },
+      {
+        label: "Voltage (V)",
+        data: [],
+        borderColor: "lime",
+        borderWidth: 2
+      }
+    ]
+  },
+  options: {
+    animation: false,
+    responsive: true,
+    scales: {
+      y: { beginAtZero: true }
+    }
+  }
+});
+
+// === Firebase Listener ===
+gridRef.on("value", (snapshot) => {
+
+  const data = snapshot.val();
+  if (!data) return;
+
+  const loss = parseFloat(data.lossPercent);
+  const temp = parseFloat(data.temperature);
+  const volt = parseFloat(data.voltage);
+
+  document.getElementById("loss").innerText = loss + "%";
+  document.getElementById("temp").innerText = temp + " °C";
+  document.getElementById("voltage").innerText = volt + " V";
+  document.getElementById("theft").innerText = data.theft ? "YES 🚨" : "NO";
+  document.getElementById("status").innerText = data.status;
+
+  // Store values
+  lossArr.push(loss);
+  tempArr.push(temp);
+  voltArr.push(volt);
+
+  if (lossArr.length > MAX_POINTS) {
+    lossArr.shift();
+    tempArr.shift();
+    voltArr.shift();
+  }
+
+  // Update chart
+  chart.data.labels = lossArr.map((_, i) => i);
+  chart.data.datasets[0].data = lossArr;
+  chart.data.datasets[1].data = tempArr;
+  chart.data.datasets[2].data = voltArr;
+  chart.update();
+
+  // AI Risk Score
+  const risk = calculateRisk(lossArr);
+  document.getElementById("risk").innerText = risk + "%";
+
+  // Prediction
+  const predicted = linearRegressionPredict(lossArr);
+  document.getElementById("prediction").innerText = predicted.toFixed(2) + "%";
+});
+
+// === Z-Score Based Anomaly Detection ===
+function calculateRisk(arr) {
+  if (arr.length < 5) return 0;
+
+  const mean = arr.reduce((a,b)=>a+b,0)/arr.length;
+  const std = Math.sqrt(arr.map(x=>Math.pow(x-mean,2))
+                .reduce((a,b)=>a+b)/arr.length);
+
+  const latest = arr[arr.length-1];
+  const z = std > 0 ? Math.abs((latest-mean)/std) : 0;
+
+  return Math.min(Math.round(z*30),100);
+}
+
+// === Linear Regression Prediction ===
+function linearRegressionPredict(data) {
+  const n = data.length;
+  if (n < 5) return data[n-1] || 0;
+
+  let sumX=0, sumY=0, sumXY=0, sumXX=0;
+
+  for(let i=0;i<n;i++){
+    sumX += i;
+    sumY += data[i];
+    sumXY += i*data[i];
+    sumXX += i*i;
+  }
+
+  const slope = (n*sumXY - sumX*sumY) /
+                (n*sumXX - sumX*sumX);
+
+  const intercept = (sumY - slope*sumX)/n;
+
+  return slope*n + intercept;
+}
+
+</script>
+
+</body>
+</html>
